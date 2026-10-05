@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Recording</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #111;
+        overflow: hidden;
+        color: #fff;
+        font-family: sans-serif;
+      }
+      #stage {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: center;
+        justify-content: center;
+        gap: 12px;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        padding: 12px;
+      }
+      video.camera,
+      .camera-off {
+        flex: 1 1 240px;
+        max-width: 480px;
+        min-height: 180px;
+        height: 46%;
+        object-fit: cover;
+        background: #1e1e1e;
+        border-radius: 12px;
+      }
+      video.share {
+        flex: 1 1 100%;
+        width: 100%;
+        height: 70%;
+        object-fit: contain;
+        background: #000;
+      }
+      .camera-off {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+      }
+      .camera-off span {
+        display: grid;
+        place-items: center;
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #3a3a3a;
+        font-size: 1.5rem;
+      }
+      .camera-off p {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <script src="/api/record/template.js"></script>
+    <script>
+      // Fallback recorder for /api/record/template. The page Egress opens is the
+      // Next /egress route, which uses @livekit/egress-sdk. This file mirrors
+      // that helper (url, token, layout, START_RECORDING, END_RECORDING) because
+      // it is a single document and cannot import the package.
+      // https://docs.livekit.io/transport/media/ingress-egress/egress/custom-template/
+      const FRAME_DECODE_TIMEOUT_MS = 5000;
+      const NO_VIDEO_START_DELAY_MS = 500;
+      const STATS_WAIT_MS = 1000;
+      const START_SIGNAL_DEADLINE_MS = 12000;
+      const stage = document.getElementById('stage');
+      const room = new LivekitClient.Room({ adaptiveStream: false, dynacast: false });
+      const attached = new Map();
+      let currentRoom;
+      let layoutChangedCallback = function () {};
+      let layoutState = { layout: '' };
+      let recordingStarted = false;
+
+      function queryParam(name) {
+        return new URLSearchParams(location.search).get(name);
+      }
+
+      const EgressHelper = {
+        getLiveKitURL() {
+          const url = queryParam('url');
+          if (!url) {
+            throw new Error('url is not found in query string');
+          }
+          return url;
+        },
+        getAccessToken() {
+          const token = queryParam('token');
+          if (!token) {
+            throw new Error('token is not found in query string');
+          }
+          return token;
+        },
+        getLayout() {
+          if (layoutState.layout) {
+            return layoutState.layout;
+          }
+          return queryParam('layout') || '';
+        },
+        setRoom(nextRoom) {
+          if (currentRoom) {
+            currentRoom.off(LivekitClient.RoomEvent.Disconnected, EgressHelper.endRecording);
+          }
+          currentRoom = nextRoom;
+          currentRoom.localParticipant.on(
+            LivekitClient.ParticipantEvent.ParticipantMetadataChanged,
+            onMetadataChanged,
+          );
+          currentRoom.on(LivekitClient.RoomEvent.Disconnected, EgressHelper.endRecording);
+          onMetadataChanged();
+        },
+        startRecording() {
+          console.log('START_RECORDING');
+        },
+        endRecording() {
+          currentRoom = undefined;
+          console.log('END_RECORDING');
+        },
+        onLayoutChanged(listener) {
+          layoutChangedCallback = listener;
+        },
+      };
+
+      function onMetadataChanged() {
+        const metadata = currentRoom && currentRoom.localParticipant.metadata;
+        if (!metadata) {
+          return;
+        }
+        const nextState = JSON.parse(metadata);
+        if (nextState && nextState.layout !== layoutState.layout) {
+          layoutState = nextState;
+          layoutChangedCallback(layoutState.layout);
+        }
+      }
+
+      function recordingShouldStart(elapsedMs, hasVideoTracks, hasDecodedFrames) {
+        if (hasDecodedFrames) {
+          return true;
+        }
+        // Do not wait for a camera or a microphone. Name tiles are the stage.
+        if (!hasVideoTracks && elapsedMs >= NO_VIDEO_START_DELAY_MS) {
+          return true;
+        }
+        return elapsedMs >= FRAME_DECODE_TIMEOUT_MS;
+      }
+
+      function holdSilentOutput() {
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor) {
+          return;
+        }
+        let context;
+        try {
+          context = new AudioContextCtor({ sampleRate: 48000, latencyHint: 'playback' });
+        } catch (error) {
+          context = new AudioContextCtor();
+        }
+        const silence = context.createBuffer(1, context.sampleRate, context.sampleRate);
+        const source = context.createBufferSource();
+        source.buffer = silence;
+        source.loop = true;
+        source.connect(context.destination);
+        source.start();
+        context.resume();
+      }
+
+      function initials(name) {
+        const parts = String(name || '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const letters = parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase());
+        return letters.join('') || '?';
+      }
+
+      function isVideo(publication) {
+        const videoKind =
+          (LivekitClient.Track && LivekitClient.Track.Kind && LivekitClient.Track.Kind.Video) ||
+          'video';
+        return publication.kind === videoKind || publication.kind === 'video';
+      }
+
+      function isAudio(track) {
+        const audioKind =
+          (LivekitClient.Track && LivekitClient.Track.Kind && LivekitClient.Track.Kind.Audio) ||
+          'audio';
+        return track.kind === audioKind || track.kind === 'audio';
+      }
+
+      async function publishedVideoState() {
+        let hasVideoTracks = false;
+        let hasDecodedFrames = false;
+        const egressKind =
+          (LivekitClient.ParticipantKind && LivekitClient.ParticipantKind.EGRESS) || 2;
+        for (const person of room.remoteParticipants.values()) {
+          if (person.kind === egressKind) {
+            continue;
+          }
+          for (const publication of person.trackPublications.values()) {
+            if (!isVideo(publication)) {
+              continue;
+            }
+            hasVideoTracks = true;
+            const track = publication.videoTrack || publication.track;
+            if (!track || !track.getRTCStatsReport) {
+              continue;
+            }
+            const stats = await track.getRTCStatsReport();
+            if (!stats) {
+              continue;
+            }
+            for (const report of stats.values()) {
+              if (report.type === 'inbound-rtp' && report.framesDecoded > 0) {
+                hasDecodedFrames = true;
+              }
+            }
+          }
+        }
+        return { hasVideoTracks, hasDecodedFrames };
+      }
+
+      function beginAfterPaint() {
+        if (recordingStarted) {
+          return;
+        }
+        recordingStarted = true;
+        render();
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            EgressHelper.startRecording();
+          });
+        });
+      }
+
+      function withStatsTimeout(promise) {
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(null), STATS_WAIT_MS);
+          promise.then(
+            (value) => {
+              clearTimeout(timer);
+              resolve(value);
+            },
+            () => {
+              clearTimeout(timer);
+              resolve(null);
+            },
+          );
+        });
+      }
+
+      function watchUntilReady() {
+        const startedAt = performance.now();
+        let checking = false;
+        const timer = setInterval(() => {
+          if (recordingStarted || checking) {
+            if (recordingStarted) {
+              clearInterval(timer);
+            }
+            return;
+          }
+          checking = true;
+          withStatsTimeout(publishedVideoState())
+            .then((snapshot) => {
+              checking = false;
+              if (recordingStarted || !snapshot) {
+                return;
+              }
+              const elapsed = performance.now() - startedAt;
+              if (
+                recordingShouldStart(elapsed, snapshot.hasVideoTracks, snapshot.hasDecodedFrames)
+              ) {
+                clearInterval(timer);
+                beginAfterPaint();
+              }
+            })
+            .catch(() => {
+              checking = false;
+            });
+        }, 100);
+      }
+
+      function render() {
+        stage.replaceChildren();
+        stage.dataset.layout = EgressHelper.getLayout();
+        const egressKind =
+          (LivekitClient.ParticipantKind && LivekitClient.ParticipantKind.EGRESS) || 2;
+        room.remoteParticipants.forEach((person) => {
+          if (person.kind === egressKind) {
+            return;
+          }
+          const share = person.getTrackPublication(LivekitClient.Track.Source.ScreenShare);
+          if (share && share.track && !share.isMuted) {
+            const element = attached.get(share.trackSid) || share.track.attach();
+            attached.set(share.trackSid, element);
+            element.className = 'share';
+            stage.appendChild(element);
+          }
+          const camera = person.getTrackPublication(LivekitClient.Track.Source.Camera);
+          if (camera && camera.track && !camera.isMuted) {
+            const element = attached.get(camera.trackSid) || camera.track.attach();
+            attached.set(camera.trackSid, element);
+            element.className = 'camera';
+            stage.appendChild(element);
+            return;
+          }
+          const tile = document.createElement('div');
+          tile.className = 'camera-off';
+          const name = person.name || person.identity;
+          const mark = document.createElement('span');
+          mark.textContent = initials(name);
+          const label = document.createElement('p');
+          label.textContent = name;
+          tile.append(mark, label);
+          stage.appendChild(tile);
+        });
+      }
+
+      function attachAudio(track) {
+        if (!isAudio(track)) {
+          return;
+        }
+        const element = track.attach();
+        element.autoplay = true;
+        document.body.appendChild(element);
+      }
+
+      // Print START_RECORDING even if the room socket is still opening.
+      // Otherwise Egress aborts with "Start signal not received".
+      setTimeout(beginAfterPaint, START_SIGNAL_DEADLINE_MS);
+      try {
+        holdSilentOutput();
+      } catch (error) {
+        console.error(error);
+      }
+      EgressHelper.onLayoutChanged((layout) => {
+        stage.dataset.layout = layout;
+        render();
+      });
+      EgressHelper.setRoom(room);
+      room.off(LivekitClient.RoomEvent.Disconnected, EgressHelper.endRecording);
+      let endTimer = 0;
+      room.on(LivekitClient.RoomEvent.Disconnected, () => {
+        clearTimeout(endTimer);
+        endTimer = setTimeout(() => {
+          if (room.state === LivekitClient.ConnectionState.Disconnected) {
+            EgressHelper.endRecording();
+          }
+        }, 15000);
+      });
+      room.on(LivekitClient.RoomEvent.Reconnected, () => clearTimeout(endTimer));
+      [
+        LivekitClient.RoomEvent.ParticipantConnected,
+        LivekitClient.RoomEvent.ParticipantDisconnected,
+        LivekitClient.RoomEvent.TrackSubscribed,
+        LivekitClient.RoomEvent.TrackUnsubscribed,
+        LivekitClient.RoomEvent.TrackMuted,
+        LivekitClient.RoomEvent.TrackUnmuted,
+      ].forEach((eventName) => room.on(eventName, render));
+      room.on(LivekitClient.RoomEvent.TrackSubscribed, attachAudio);
+      room.on(LivekitClient.RoomEvent.Connected, () => {
+        clearTimeout(endTimer);
+        render();
+        watchUntilReady();
+      });
+      try {
+        room.connect(EgressHelper.getLiveKitURL(), EgressHelper.getAccessToken()).catch((error) => {
+          console.error(error);
+        });
+      } catch (error) {
+        console.error(error);
+        document.body.textContent = 'missing required params url and token';
+      }
+    </script>
+  </body>
+</html>

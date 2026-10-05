@@ -1,0 +1,135 @@
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(100%, 480px);
+  padding: 1rem;
+}
+
+.notice {
+  margin: 0;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.lobby :global(.lk-username-container) {
+  flex-wrap: wrap;
+}
+
+.lobby :global(.lk-join-button) {
+  flex: 1 1 12rem;
+  height: auto;
+  min-height: 2.75rem;
+  white-space: normal;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: #1c1c1c;
+  color: white;
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.queue {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.secondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.people {
+  width: min(440px, 100%);
+  max-height: min(70vh, 640px);
+}
+
+.hint {
+  margin: 0;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+
+.person {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.personName {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.75rem;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.rowActions button,
+.endButton {
+  font-size: 0.85rem;
+}
+
+.error {
+  margin: 0;
+  color: #ff8f84;
+}
+
+.endButton {
+  align-self: flex-start;
+  background: transparent;
+  color: #ff8f84;
+  border: 1px solid rgba(255, 99, 82, 0.7);
+}

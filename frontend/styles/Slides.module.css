@@ -1,0 +1,246 @@
+.shareSlides[data-lk-enabled='true'],
+.chevronButton[data-lk-enabled='true'] {
+  background-color: var(--lk-accent-bg);
+  color: var(--lk-accent-fg);
+}
+
+.shareGroup {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.shareGroup > :global(.lk-button) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.shareMenu {
+  position: relative;
+}
+
+.chevronButton {
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+  min-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.notesMenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.55rem);
+  z-index: 40;
+  min-width: 12.5rem;
+  padding: 0.3rem;
+  border-radius: 0.65rem;
+  background: rgba(20, 20, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.notesToggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #fff;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.notesToggle:hover,
+.notesToggle[aria-checked='true'] {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.focus:global(.lk-focus-layout) {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* 1fr is minmax(auto, 1fr), so a slide's content size kept the column from
+     shrinking and left it scrollable after the window was widened again. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 5fr);
+}
+
+.focus:global(.lk-focus-layout) > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 600px) {
+  .focus:global(.lk-focus-layout) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 5fr) minmax(0, 1fr);
+  }
+}
+
+.carousel:global(.lk-carousel) {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  gap: var(--lk-grid-gap);
+}
+
+.carousel:global(.lk-carousel) > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #0b0b0b;
+  overflow: hidden;
+}
+
+.tile {
+  background: var(--lk-bg2);
+  border-radius: var(--lk-border-radius);
+  overflow: hidden;
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tile .frame {
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.tile :global(.lk-participant-metadata-item) {
+  min-width: 0;
+  max-width: calc(100% - 0.5rem);
+}
+
+.tile :global(.lk-participant-name) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile .frame canvas {
+  box-shadow: none;
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+}
+
+/* Presenter-only. Other participants keep the full-bleed slide. */
+.stageWithNotes .frame {
+  inset: auto;
+  top: 2%;
+  left: 10%;
+  width: 80%;
+  height: 62%;
+}
+
+.stageWithNotes .speakerNotes {
+  position: absolute;
+  left: 10%;
+  width: 80%;
+  top: 66%;
+  height: min(18%, 6.5rem);
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.notesLabel {
+  margin: 0 0 0.15rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.notesBody {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notesEmpty {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.frame canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.95rem;
+}
+
+.hud {
+  position: absolute;
+  left: 50%;
+  bottom: 2.75rem;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 1.5rem);
+  z-index: 2;
+}
+
+.remote {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+.remote button {
+  min-height: 2rem;
+  padding-inline: 0.75rem;
+}
+
+/* Kept for a later touch-device control. Hidden so the slide fills the stage. */
+.navButton {
+  display: none;
+}
+

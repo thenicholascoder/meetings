@@ -1,0 +1,194 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meetings
+      POSTGRES_USER: meetings
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meetings}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meetings"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Quay no longer serves the MinIO images to anonymous pulls
+  # ("unauthorized: access to the requested resource is not authorized").
+  # Silo is a maintained S3-compatible build of that server: same MINIO_*
+  # settings, same /minio/health routes, and the same on-disk layout.
+  # https://github.com/pgsty/silo
+  minio:
+    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_KEY_ID:-minio}
+      MINIO_ROOT_PASSWORD: ${S3_KEY_SECRET:-minio12345}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/recordings
+    environment:
+      MINIO_ROOT_USER: ${S3_KEY_ID:-minio}
+      MINIO_ROOT_PASSWORD: ${S3_KEY_SECRET:-minio12345}
+    restart: "no"
+
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    depends_on:
+      - redis
+
+  # Room composite needs Chrome, so the container needs SYS_ADMIN and a larger
+  # /dev/shm. Root only starts D-Bus and clears /var/lib/pulse. The service
+  # then runs as the egress user, which is what the image expects.
+  # Add more replicas of this service to record more rooms at once.
+  # https://docs.livekit.io/transport/self-hosting/egress/
+  egress:
+    image: livekit/egress:v1.14.1
+    restart: unless-stopped
+    # The image user cannot create the system bus Chrome needs at startup.
+    user: "0:0"
+    entrypoint: ["bash", "/etc/egress-entrypoint.sh"]
+    cap_add:
+      - SYS_ADMIN
+    shm_size: "1gb"
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      AWS_ACCESS_KEY_ID: ${S3_KEY_ID:-minio}
+      AWS_SECRET_ACCESS_KEY: ${S3_KEY_SECRET:-minio12345}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./infra/egress.yaml:/etc/egress.yaml:ro
+      - ./infra/egress-entrypoint.sh:/etc/egress-entrypoint.sh:ro
+      - ./backend/recordings:/out
+    depends_on:
+      redis:
+        condition: service_started
+      livekit:
+        condition: service_started
+
+  converter:
+    build:
+      context: .
+      dockerfile: infra/converter/Dockerfile
+    image: meetings-converter
+    restart: unless-stopped
+    # LibreOffice stays running. A cold start is what makes a deck take
+    # longer than ten seconds; restart-after 0 keeps that process up.
+    command:
+      - gotenberg
+      - --api-timeout=90s
+      - --libreoffice-auto-start=true
+      - --libreoffice-restart-after=0
+      - --libreoffice-start-timeout=90s
+    ports:
+      - "3100:3000"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://meetings:${POSTGRES_PASSWORD:-meetings}@db:5432/meetings
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_URL: ${LIVEKIT_API_URL:-http://livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:3000}
+      PPTX_CONVERTER_URL: http://converter:3000
+      # Chrome in Egress loads the meeting stage through Caddy, so /api/slides
+      # resolves. host.docker.internal:3000 is only for Next running on the host.
+      RECORDING_TEMPLATE_URL: http://caddy/egress
+      S3_KEY_ID: ${S3_KEY_ID:-minio}
+      S3_KEY_SECRET: ${S3_KEY_SECRET:-minio12345}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      S3_BUCKET: ${S3_BUCKET:-recordings}
+      S3_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - slides_media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_LK_TOKEN_ENDPOINT: /api/getToken
+        NEXT_PUBLIC_LK_RECORD_ENDPOINT: /api/record
+        NEXT_PUBLIC_SHOW_SETTINGS_MENU: "true"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  slides_media:
+  minio_data:

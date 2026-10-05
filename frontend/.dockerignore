@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+Dockerfile
+npm-debug.log
+.env
+.env.local
+public/pdf.worker.min.mjs
+public/pdfjs

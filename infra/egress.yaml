@@ -1,0 +1,43 @@
+# LiveKit Egress for room-composite MP4 recordings.
+# https://docs.livekit.io/transport/self-hosting/egress/
+#
+# api_key and api_secret are required and must match infra/livekit.yaml.
+# The LiveKit server reads its keys from that file, not from the Compose
+# environment, so this file carries the same pair. LIVEKIT_API_KEY is only
+# used when these fields are left out.
+
+log_level: info
+api_key: meetingskey
+api_secret: dev_meetings_secret_change_me_32chars_min
+# Chrome loads the meeting template and opens this websocket. LiveKit is on
+# the same Compose network, so the service name is the address Egress should
+# use. host.docker.internal is only for a LiveKit server running on the host.
+ws_url: ws://livekit:7880
+insecure: true
+
+redis:
+  address: redis:6379
+
+# A template recording is a room composite. The default cost is 4 CPUs, and
+# the worker answers only when available CPU (cores × 0.8) covers that cost.
+# Docker Desktop is often smaller than that. A worker that declines never
+# replies, so StartEgress waits about 21 seconds and returns
+# "no response from servers".
+# https://docs.livekit.io/transport/self-hosting/egress/
+cpu_cost:
+  room_composite_cpu_cost: 0.5
+  web_cpu_cost: 0.5
+
+# The image runs Chrome audio inside the page process, so slide parsing and
+# the mixer share one thread. A stall becomes one multi-second AAC sample
+# and the player jumps ahead. These are the image flags with audio left in
+# its own process. Later flags replace earlier ones.
+chrome_flags:
+  disable-features: "site-per-process,Translate,TranslateUI,BlinkGenPropertyTrees"
+
+health_port: 8080
+prometheus_port: 9090
+
+# No fallback bucket. Django sends StorageConfig when a recording should go to
+# MinIO. With RECORDING_LOCAL_DIR set, it sends no storage and Egress writes
+# /out/{room_name}/{time}.mp4, which Compose mounts at backend/recordings.

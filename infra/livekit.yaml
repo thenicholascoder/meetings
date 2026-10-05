@@ -1,0 +1,75 @@
+# LiveKit server config for Docker self-hosting.
+# API key/secret MUST match LIVEKIT_API_KEY / LIVEKIT_API_SECRET in .env.
+
+port: 7880
+bind_addresses:
+  - 0.0.0.0
+
+redis:
+  address: redis:6379
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  # ICE candidates advertised to browsers on this machine.
+  # For LAN access, set this to your host LAN IP (e.g. 192.168.1.10).
+  # A public deployment should set use_external_ip: true (or node_ip to that
+  # region's public address) so media takes the shortest path. That, not the
+  # client SDK, is what keeps an international call near 100–200ms.
+  # https://docs.livekit.io/transport/self-hosting/ports-firewall/
+  node_ip: 127.0.0.1
+  # Keep the container address as well, so Egress on the Compose network can
+  # reach media while browsers still use 127.0.0.1.
+  # https://docs.livekit.io/transport/self-hosting/egress/
+  advertise_internal_ip: true
+  # UDP is the low-delay path. TCP is only the fallback when UDP cannot connect.
+  allow_tcp_fallback: true
+  # Pause a stream that cannot be delivered on time so the rest of the call
+  # does not wait behind it. Congestion control itself is already on.
+  # https://github.com/livekit/livekit/blob/v1.13.7/config-sample.yaml
+  congestion_control:
+    enabled: true
+    allow_pause: true
+  # Ask for a keyframe sooner when a tile becomes visible, so the picture
+  # appears instead of sitting on a black frame. Defaults are 1s for mid/high.
+  pli_throttle:
+    low_quality: 500ms
+    mid_quality: 500ms
+    high_quality: 500ms
+  # Merge socket writes. The flush cap is 2ms, so this does not add a
+  # noticeable buffer.
+  batch_io:
+    batch_size: 128
+    max_flush_interval: 2ms
+
+# Cap how long a receiver is allowed to buffer. With this off, the browser
+# jitter buffer can grow well past a meeting-sized delay and never catch up.
+# 50ms covers one Opus frame of jitter; 200ms is the ceiling.
+room:
+  playout_delay:
+    enabled: true
+    min: 50
+    max: 200
+
+# Active-speaker updates drive the grid. This server's default interval is
+# 400ms. RED on the downlink hides a lost audio packet without a
+# retransmission round trip.
+audio:
+  update_interval: 200
+  smooth_intervals: 2
+  active_red_encoding: true
+
+# Egress completion is delivered here. The signature uses the API key above.
+# Django runs on the host (runserver on port 8000). From this container that
+# address is host.docker.internal, not the Compose service name.
+webhook:
+  api_key: meetingskey
+  urls:
+    - http://host.docker.internal:8000/api/livekit/webhook
+
+keys:
+  meetingskey: dev_meetings_secret_change_me_32chars_min
+
+logging:
+  level: info
