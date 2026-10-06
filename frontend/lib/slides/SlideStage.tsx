@@ -11,6 +11,21 @@ import styles from '@/styles/Slides.module.css';
 
 let cachedPdf: { bytes: Uint8Array; pdf: PDFDocumentProxy } | null = null;
 
+type PdfjsModule = {
+  getDocument: typeof import('pdfjs-dist').getDocument;
+  GlobalWorkerOptions: { workerSrc: string };
+};
+
+/**
+ * pdf.min.mjs is already bundled. Importing the npm package lets webpack wrap
+ * that bundle again, and the dev server then throws
+ * "Object.defineProperty called on non-object" instead of drawing the page.
+ * The cast keeps TypeScript from resolving the public URL as a module.
+ */
+function loadPdfjs(): Promise<PdfjsModule> {
+  return import(/* webpackIgnore: true */ '/pdf.min.mjs' as string);
+}
+
 /**
  * The recorder must paint before it parses the deck. Opening the PDF on the
  * first frame blocks Chrome, the capture pipeline stays paused, and the MP4
@@ -94,7 +109,7 @@ export function SlideStage({
     let document: PDFDocumentProxy | null = null;
     void (async () => {
       try {
-        const pdfjs = await import('pdfjs-dist');
+        const pdfjs = await loadPdfjs();
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         document = await pdfjs
           .getDocument({
