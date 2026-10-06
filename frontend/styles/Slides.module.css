@@ -135,6 +135,9 @@
 .frame {
   position: absolute;
   inset: 0;
+  /* Text that runs past a shape can paint outside the white slide, but it
+     stays inside this picture so it does not cover notes or the page controls. */
+  overflow: hidden;
 }
 
 /* Presenter-only. Other participants keep the full-bleed slide. */
@@ -199,7 +202,7 @@
 .pptxHost {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .tile .frame canvas,

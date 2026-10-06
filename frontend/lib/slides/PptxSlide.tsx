@@ -14,6 +14,36 @@ type PptxViewerInstance = {
   destroy: () => void;
 };
 
+function clipsOverflow(value: string) {
+  return value === 'hidden' || value === 'clip' || value === 'auto' || value === 'scroll';
+}
+
+/**
+ * Shape text is absolutely positioned in a column flex box. PowerPoint boxes
+ * with wrap="none", and the renderer's shrink-to-fit pass, clip that box, so
+ * the rest of the line never paints. Let it paint through the slide instead.
+ * The frame around the slide still clips, so the line stays in the picture.
+ */
+function revealOverflowText(host: HTMLElement) {
+  for (const box of host.querySelectorAll<HTMLElement>('div')) {
+    const style = box.style;
+    if (style.position !== 'absolute' || style.display !== 'flex' || style.flexDirection !== 'column') {
+      continue;
+    }
+    let node: HTMLElement | null = box;
+    while (node) {
+      const computed = getComputedStyle(node);
+      if (clipsOverflow(computed.overflowX) || clipsOverflow(computed.overflowY)) {
+        node.style.overflow = 'visible';
+      }
+      if (node === host) {
+        break;
+      }
+      node = node.parentElement;
+    }
+  }
+}
+
 function fitSlide(host: HTMLDivElement, slideWidth: number, slideHeight: number) {
   const frame = host.parentElement;
   if (!frame || slideWidth < 1 || slideHeight < 1) {
@@ -62,7 +92,9 @@ export function PptxSlide({
       return;
     }
     let cancelled = false;
+    let overflowObserver: MutationObserver | null = null;
     setVisible(false);
+    const reveal = () => revealOverflowText(host);
     void (async () => {
       try {
         const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import('@aiden0z/pptx-renderer');
@@ -93,6 +125,14 @@ export function PptxSlide({
           viewer.destroy();
           return;
         }
+        reveal();
+        overflowObserver = new MutationObserver(reveal);
+        overflowObserver.observe(host, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['style'],
+        });
         setVisible(true);
         onReadyRef.current();
       } catch (error) {
@@ -105,6 +145,7 @@ export function PptxSlide({
     })();
     return () => {
       cancelled = true;
+      overflowObserver?.disconnect();
       viewerRef.current?.destroy();
       viewerRef.current = null;
       host.replaceChildren();
