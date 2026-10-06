@@ -18,6 +18,37 @@ function clipsOverflow(value: string) {
   return value === 'hidden' || value === 'clip' || value === 'auto' || value === 'scroll';
 }
 
+/** Keep the PowerPoint anchor when the line is taller than the box. */
+function unsafeFlexAlignment(value: string) {
+  if (value === 'center') return 'unsafe center';
+  if (value === 'flex-end') return 'unsafe flex-end';
+  return null;
+}
+
+/**
+ * Once a text box no longer clips, the browser treats `center` as start
+ * alignment so the beginning of the line cannot fall outside the box. Put the
+ * original center (or bottom / right edge) back, and let the extra text hang
+ * out equally instead of shifting to one side.
+ */
+function restoreTextAlignment(box: HTMLElement) {
+  const justify = unsafeFlexAlignment(box.style.justifyContent);
+  if (justify) box.style.justifyContent = justify;
+  const alignItems = unsafeFlexAlignment(box.style.alignItems);
+  if (alignItems) box.style.alignItems = alignItems;
+  if (box.style.whiteSpace !== 'nowrap') return;
+
+  for (const child of box.children) {
+    if (!(child instanceof HTMLElement)) continue;
+    const align = child.style.textAlign;
+    if (align !== 'center' && align !== 'right') continue;
+    if (child.scrollWidth <= child.clientWidth + 1) continue;
+    child.style.width = 'max-content';
+    child.style.maxWidth = 'none';
+    child.style.alignSelf = align === 'center' ? 'unsafe center' : 'unsafe flex-end';
+  }
+}
+
 /**
  * Shape text is absolutely positioned in a column flex box. PowerPoint boxes
  * with wrap="none", and the renderer's shrink-to-fit pass, clip that box, so
@@ -41,6 +72,7 @@ function revealOverflowText(host: HTMLElement) {
       }
       node = node.parentElement;
     }
+    restoreTextAlignment(box);
   }
 }
 
