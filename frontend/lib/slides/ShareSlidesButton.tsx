@@ -33,7 +33,6 @@ export function ShareSlidesButton({
     showSpeakerNotes,
     setShowSpeakerNotes,
     uploading,
-    converting,
     shareFile,
     stopSharing,
   } = useSlides();
@@ -41,13 +40,11 @@ export function ShareSlidesButton({
   const groupRef = React.useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const sharing = isOwner && !!deck;
-  const busy = uploading || converting;
+  const busy = uploading;
   const lockedByPresentation = locked && !sharing && !busy;
   const notesMenu = sharing && hasSpeakerNotes;
   let label = 'Share slides';
-  if (converting) {
-    label = 'Converting…';
-  } else if (uploading) {
+  if (uploading) {
     label = 'Uploading…';
   } else if (sharing) {
     label = 'Stop slides';
@@ -138,13 +135,7 @@ export function ShareSlidesButton({
       aria-busy={busy}
       aria-disabled={lockedByPresentation || undefined}
       aria-label={lockedByPresentation ? 'Share slides unavailable while someone is presenting' : label}
-      title={
-        lockedByPresentation
-          ? 'Unavailable while someone is presenting'
-          : converting
-            ? 'Converting PowerPoint…'
-            : undefined
-      }
+      title={lockedByPresentation ? 'Unavailable while someone is presenting' : undefined}
       disabled={busy || lockedByPresentation}
       style={lockedByPresentation ? { pointerEvents: 'none' } : undefined}
       onPointerDown={(event) => {

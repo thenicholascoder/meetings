@@ -14,9 +14,10 @@ from .serializers import ScheduledRoomSerializer
 from .services.admission import AdmissionError, create_meeting
 from .services.slides import (
     MAX_PDF_BYTES,
+    current_deck,
     deck_payload,
+    file_content_type,
     notes_payload,
-    room_slide_state,
     save_deck,
     set_page,
     speaker_notes_for,
@@ -97,26 +98,10 @@ def slides_collection(request):
     if request.method == "GET":
         room_name = request.GET.get("roomName") or request.GET.get("room_name") or ""
         try:
-            state = room_slide_state(room_name)
+            deck = current_deck(room_name)
         except ValueError as exc:
             return _json_error(str(exc), 400)
-        deck = state["deck"]
-        converting = state["converting"]
-        return JsonResponse(
-            {
-                "deck": deck_payload(deck) if deck else None,
-                "converting": (
-                    {
-                        "deckId": str(converting.id),
-                        "ownerIdentity": converting.owner_identity,
-                        "ownerName": converting.owner_name,
-                    }
-                    if converting
-                    else None
-                ),
-                "error": state["error"],
-            }
-        )
+        return JsonResponse({"deck": deck_payload(deck) if deck else None})
     if request.method == "POST":
         return _slides_upload(request)
     return HttpResponse(status=405)
@@ -140,8 +125,6 @@ def _slides_upload(request):
         return _json_error(str(exc), 403)
     except ValueError as exc:
         return _json_error(str(exc), 400)
-    if deck.page_count < 1:
-        return JsonResponse({"status": "converting", "deckId": str(deck.id)}, status=202)
     return JsonResponse({"deck": deck_payload(deck), "notes": notes_payload(deck)}, status=201)
 
 
@@ -219,6 +202,6 @@ def slides_file(request, deck_id):
         return _json_error("Slides not found", 404)
     if not deck.file:
         return _json_error("Slides not found", 404)
-    response = FileResponse(deck.file.open("rb"), content_type="application/pdf")
+    response = FileResponse(deck.file.open("rb"), content_type=file_content_type(deck))
     response["Cache-Control"] = "private, max-age=3600"
     return response

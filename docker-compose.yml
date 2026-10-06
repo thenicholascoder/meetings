@@ -103,23 +103,6 @@ services:
       livekit:
         condition: service_started
 
-  converter:
-    build:
-      context: .
-      dockerfile: infra/converter/Dockerfile
-    image: meetings-converter
-    restart: unless-stopped
-    # LibreOffice stays running. A cold start is what makes a deck take
-    # longer than ten seconds; restart-after 0 keeps that process up.
-    command:
-      - gotenberg
-      - --api-timeout=90s
-      - --libreoffice-auto-start=true
-      - --libreoffice-restart-after=0
-      - --libreoffice-start-timeout=90s
-    ports:
-      - "3100:3000"
-
   backend:
     build:
       context: .
@@ -137,7 +120,6 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:3000}
-      PPTX_CONVERTER_URL: http://converter:3000
       # Chrome in Egress loads the meeting stage through Caddy, so /api/slides
       # resolves. host.docker.internal:3000 is only for Next running on the host.
       RECORDING_TEMPLATE_URL: http://caddy/egress

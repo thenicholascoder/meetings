@@ -14,7 +14,6 @@ import {
   updateDeckPage,
   uploadDeck,
   uploadFailureIsTemporary,
-  waitForConvertedDeck,
   type Deck,
 } from '@/lib/slides/api';
 
@@ -47,11 +46,10 @@ type SlidePreparing = {
 
 export type SlidesContextValue = {
   deck: Deck | null;
-  pdfBytes: Uint8Array | null;
+  slideBytes: Uint8Array | null;
   fileStatus: 'idle' | 'loading' | 'ready' | 'error';
   fileError: string | null;
   uploading: boolean;
-  converting: boolean;
   preparing: SlidePreparing | null;
   presentationReleased: boolean;
   noteSlidesQuiet: () => void;
@@ -80,11 +78,10 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
   const room = useRoomContext();
   const session = useMeetingSession();
   const [deck, setDeck] = React.useState<Deck | null>(null);
-  const [pdfBytes, setPdfBytes] = React.useState<Uint8Array | null>(null);
+  const [slideBytes, setSlideBytes] = React.useState<Uint8Array | null>(null);
   const [fileStatus, setFileStatus] = React.useState<SlidesContextValue['fileStatus']>('idle');
   const [fileError, setFileError] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
-  const [converting, setConverting] = React.useState(false);
   const [preparing, setPreparingState] = React.useState<SlidePreparing | null>(null);
   const [presentationReleased, setPresentationReleased] = React.useState(false);
   const [speakerNotes, setSpeakerNotes] = React.useState<string[]>([]);
@@ -92,7 +89,7 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
   const [showSpeakerNotes, setShowSpeakerNotesState] = React.useState(false);
 
   const deckRef = React.useRef<Deck | null>(null);
-  const pdfBytesRef = React.useRef<Uint8Array | null>(null);
+  const slideBytesRef = React.useRef<Uint8Array | null>(null);
   const notesLoadedRef = React.useRef(false);
   const loadToken = React.useRef(0);
   const chain = React.useRef(Promise.resolve());
@@ -138,8 +135,8 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
         if (token !== loadToken.current || deckRef.current?.deckId !== deckId) {
           return;
         }
-        pdfBytesRef.current = bytes;
-        setPdfBytes(bytes);
+        slideBytesRef.current = bytes;
+        setSlideBytes(bytes);
         setFileStatus('ready');
       } catch (error) {
         if (token !== loadToken.current) {
@@ -148,13 +145,13 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
         // The host already drew this deck from the local file. A second fetch
         // when the recorder joins must not replace that picture with an error.
         // Page controls would still work, which is what the host saw.
-        if (deckRef.current?.deckId === deckId && pdfBytesRef.current) {
+        if (deckRef.current?.deckId === deckId && slideBytesRef.current) {
           setFileStatus('ready');
           setFileError(null);
           return;
         }
-        pdfBytesRef.current = null;
-        setPdfBytes(null);
+        slideBytesRef.current = null;
+        setSlideBytes(null);
         setFileStatus('error');
         setFileError(error instanceof Error ? error.message : 'Could not download slides');
       }
@@ -178,8 +175,8 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
   const clearDeck = React.useCallback(() => {
     loadToken.current += 1;
     applyDeck(null);
-    pdfBytesRef.current = null;
-    setPdfBytes(null);
+    slideBytesRef.current = null;
+    setSlideBytes(null);
     setFileStatus('idle');
     setFileError(null);
     clearNotes();
@@ -267,17 +264,16 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
       const ownerName = room.localParticipant.name || '';
       const previousDeckId = deckRef.current?.deckId ?? null;
       setUploading(true);
-      setConverting(isPptx);
       setPreparing({ ownerIdentity, ownerName });
-      showProgressToast(ownerIdentity, isPptx ? 'Converting PowerPoint…' : 'Uploading slides…');
-      // Tell the room before the upload returns. Conversion can take a while,
-      // and this message does not need to finish before the file is sent.
+      showProgressToast(ownerIdentity, 'Uploading slides…');
+      // Tell the room before the upload returns so joiners see that a deck is coming.
       void publish(room, { type: 'preparing', ownerIdentity, ownerName }).catch((error) => {
         console.error(error);
       });
       try {
-        // A PDF can be previewed from the local file while it uploads. PowerPoint
-        // is accepted immediately and converted on the server.
+        // Both PDF and PowerPoint can be drawn from the local file. The server
+        // stores the upload as-is and returns speaker notes with it.
+        let useLocalFile = true;
         const [created, localBuffer] = await Promise.all([
           uploadDeck({
             file,
@@ -288,9 +284,7 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
             if (!uploadFailureIsTemporary(error)) {
               throw error;
             }
-            setUploading(false);
-            setConverting(true);
-            showProgressToast(ownerIdentity, 'Converting PowerPoint…');
+            useLocalFile = false;
             const recovered = await recoverOwnedDeck({
               roomName: room.name,
               ownerIdentity,
@@ -301,35 +295,27 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
             }
             return { status: 'ready' as const, deck: recovered.deck, notes: recovered.notes };
           }),
-          isPdf ? file.arrayBuffer() : Promise.resolve(null),
+          file.arrayBuffer(),
         ]);
-        const ready =
-          created.status === 'converting'
-            ? await waitForConvertedDeck({
-                roomName: room.name,
-                deckId: created.deckId,
-                ownerIdentity,
-              })
-            : created;
-        if (stoppedDeckIds.current.has(ready.deck.deckId)) {
+        if (stoppedDeckIds.current.has(created.deck.deckId)) {
           clearPreparing(ownerIdentity);
           return;
         }
         loadToken.current += 1;
-        applyDeck(ready.deck);
-        rememberNotes(ready.notes);
+        applyDeck(created.deck);
+        rememberNotes(created.notes);
         setShowSpeakerNotesState(false);
-        lastSent.current = { deckId: ready.deck.deckId, page: ready.deck.page };
+        lastSent.current = { deckId: created.deck.deckId, page: created.deck.page };
         clearPreparing(ownerIdentity);
-        const started = publish(room, { type: 'start', ...ready.deck });
-        if (localBuffer && created.status === 'ready') {
-          pdfBytesRef.current = new Uint8Array(localBuffer);
-          setPdfBytes(pdfBytesRef.current);
+        const started = publish(room, { type: 'start', ...created.deck });
+        if (useLocalFile) {
+          slideBytesRef.current = new Uint8Array(localBuffer);
+          setSlideBytes(slideBytesRef.current);
           setFileStatus('ready');
           setFileError(null);
           await started;
         } else {
-          await Promise.all([started, loadBytes(ready.deck.deckId)]);
+          await Promise.all([started, loadBytes(created.deck.deckId)]);
         }
       } catch (error) {
         clearPreparing(ownerIdentity);
@@ -339,7 +325,6 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
         toast.error(error instanceof Error ? error.message : 'Could not share slides');
       } finally {
         setUploading(false);
-        setConverting(false);
       }
     },
     [applyDeck, clearPreparing, loadBytes, rememberNotes, room, setPreparing],
@@ -508,7 +493,7 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
       const alreadyShown =
         message.ownerIdentity === room.localParticipant.identity &&
         deckRef.current?.deckId === message.deckId &&
-        pdfBytesRef.current;
+        slideBytesRef.current;
       applyDeck(message);
       if (message.ownerIdentity !== room.localParticipant.identity) {
         clearNotes();
@@ -575,11 +560,10 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
   const value = React.useMemo<SlidesContextValue>(
     () => ({
       deck,
-      pdfBytes,
+      slideBytes,
       fileStatus,
       fileError,
       uploading,
-      converting,
       preparing,
       presentationReleased,
       noteSlidesQuiet,
@@ -594,7 +578,6 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
       setShowSpeakerNotes,
     }),
     [
-      converting,
       deck,
       fileError,
       fileStatus,
@@ -602,7 +585,7 @@ export function SlidesProvider({ children }: { children: React.ReactNode }) {
       isOwner,
       noteSlidesQuiet,
       notesLoaded,
-      pdfBytes,
+      slideBytes,
       preparing,
       presentationReleased,
       setPage,
@@ -637,6 +620,7 @@ function parseMessage(payload: Uint8Array): SlidesMessage | null {
       page?: unknown;
       pageCount?: unknown;
       name?: unknown;
+      format?: unknown;
       hasNotes?: unknown;
     };
     if (!message || typeof message.ownerIdentity !== 'string' || !message.ownerIdentity) {
@@ -678,6 +662,7 @@ function parseMessage(payload: Uint8Array): SlidesMessage | null {
         page: message.page,
         pageCount: message.pageCount,
         name: message.name,
+        format: message.format === 'pptx' ? 'pptx' : 'pdf',
         ownerIdentity: message.ownerIdentity,
         ownerName: typeof message.ownerName === 'string' ? message.ownerName : '',
         hasNotes: message.hasNotes === true,

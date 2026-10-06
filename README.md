@@ -5,7 +5,7 @@ From the repo root:
 
 ```powershell
 copy .env.example .env
-docker compose up redis db livekit converter minio minio-init egress
+docker compose up redis db livekit minio minio-init egress
 ```
 
 ## 2. Backend

@@ -24,6 +24,10 @@ function copyPdfjsAssets() {
   }
   const publicDir = path.join(__dirname, 'public');
   fs.copyFileSync(worker, path.join(publicDir, 'pdf.worker.min.mjs'));
+  const pdfModule = path.join(pkg, 'build', 'pdf.min.mjs');
+  if (fs.existsSync(pdfModule)) {
+    fs.copyFileSync(pdfModule, path.join(publicDir, 'pdf.min.mjs'));
+  }
   for (const folder of ['cmaps', 'standard_fonts']) {
     const source = path.join(pkg, folder);
     if (fs.existsSync(source)) {

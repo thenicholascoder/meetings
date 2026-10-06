@@ -150,7 +150,6 @@ export function MeetingControlBar({
     deck,
     preparing,
     uploading,
-    converting,
     isOwner,
     presentationReleased,
     noteSlidesQuiet,
@@ -169,13 +168,12 @@ export function MeetingControlBar({
     Boolean(deck) ||
     Boolean(preparing) ||
     uploading ||
-    converting ||
     (!presentationReleased && staleSlideHints);
   React.useEffect(() => {
-    if (presentationReleased && !deck && !preparing && !uploading && !converting && !staleSlideHints) {
+    if (presentationReleased && !deck && !preparing && !uploading && !staleSlideHints) {
       noteSlidesQuiet();
     }
-  }, [converting, deck, noteSlidesQuiet, preparing, presentationReleased, staleSlideHints, uploading]);
+  }, [deck, noteSlidesQuiet, preparing, presentationReleased, staleSlideHints, uploading]);
   const [localScreenStopped, setLocalScreenStopped] = React.useState(false);
   const [ignoredSharers, setIgnoredSharers] = React.useState<ReadonlySet<string>>(() => new Set());
   const screenShareCapture = React.useMemo(() => meetingScreenShareCapture(), []);

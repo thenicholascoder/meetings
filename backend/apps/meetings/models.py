@@ -178,10 +178,11 @@ class ScheduledRoom(models.Model):
 
 
 class SharedSlides(models.Model):
-    """One active deck per room. PowerPoint uploads are stored as PDF.
+    """One active deck per room.
 
-    Viewers render pages locally; only the page index is synced. Speaker notes
-    stay on the deck and are returned only to the person sharing.
+    PDF and PowerPoint uploads are stored as uploaded. Viewers render the file
+    locally; only the page index is synced. Speaker notes stay on the deck and
+    are returned only to the person sharing.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

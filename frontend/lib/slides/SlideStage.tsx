@@ -3,6 +3,8 @@
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import React from 'react';
 import { useLayoutContext, useParticipants } from '@livekit/components-react';
+import { isPdfBytes } from '@/lib/slides/api';
+import { PptxSlide } from '@/lib/slides/PptxSlide';
 import { SlidesIcon } from '@/lib/slides/ShareSlidesButton';
 import { useSlides } from '@/lib/slides/SlidesContext';
 import styles from '@/styles/Slides.module.css';
@@ -37,7 +39,7 @@ export function SlideStage({
 }) {
   const {
     deck,
-    pdfBytes,
+    slideBytes,
     fileStatus,
     fileError,
     isOwner,
@@ -53,7 +55,7 @@ export function SlideStage({
   const renderGeneration = React.useRef(0);
   const renderTaskRef = React.useRef<RenderTask | null>(null);
   const [pdf, setPdf] = React.useState<PDFDocumentProxy | null>(() =>
-    cachedPdf && cachedPdf.bytes === pdfBytes ? cachedPdf.pdf : null,
+    cachedPdf && slideBytes && cachedPdf.bytes === slideBytes ? cachedPdf.pdf : null,
   );
   const [renderError, setRenderError] = React.useState<string | null>(null);
   // The canvas is white until the first page is copied onto it. Stay on the
@@ -74,7 +76,7 @@ export function SlideStage({
     if (capture && !allowPdf) {
       return;
     }
-    if (!pdfBytes) {
+    if (!slideBytes || !isPdfBytes(slideBytes)) {
       setPdf(null);
       setRenderError(null);
       if (cachedPdf) {
@@ -83,7 +85,7 @@ export function SlideStage({
       }
       return;
     }
-    if (cachedPdf?.bytes === pdfBytes) {
+    if (cachedPdf?.bytes === slideBytes) {
       setPdf(cachedPdf.pdf);
       setRenderError(null);
       return;
@@ -96,7 +98,7 @@ export function SlideStage({
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         document = await pdfjs
           .getDocument({
-            data: pdfBytes.slice(0),
+            data: slideBytes.slice(0),
             standardFontDataUrl: '/pdfjs/standard_fonts/',
             cMapUrl: '/pdfjs/cmaps/',
             cMapPacked: true,
@@ -106,10 +108,10 @@ export function SlideStage({
           await document.destroy();
           return;
         }
-        if (cachedPdf && cachedPdf.bytes !== pdfBytes) {
+        if (cachedPdf && cachedPdf.bytes !== slideBytes) {
           void cachedPdf.pdf.destroy();
         }
-        cachedPdf = { bytes: pdfBytes, pdf: document };
+        cachedPdf = { bytes: slideBytes, pdf: document };
         setPdf(document);
         setRenderError(null);
       } catch (error) {
@@ -122,7 +124,7 @@ export function SlideStage({
     return () => {
       cancelled = true;
     };
-  }, [allowPdf, capture, pdfBytes]);
+  }, [allowPdf, capture, slideBytes]);
 
   React.useEffect(() => {
     const frame = frameRef.current;
@@ -168,7 +170,7 @@ export function SlideStage({
           }
           buffer.width = Math.floor(viewport.width);
           buffer.height = Math.floor(viewport.height);
-          const task = page.render({ canvasContext: context, viewport });
+          const task = page.render({ canvas: buffer, viewport });
           renderTaskRef.current = task;
           try {
             await task.promise;
@@ -253,7 +255,9 @@ export function SlideStage({
       ? owner.name
       : owner.identity
     : deck.ownerName || deck.ownerIdentity || 'Someone';
-  const slidesReady = Boolean(pdf) && pageReady;
+  const isPdf = Boolean(slideBytes && isPdfBytes(slideBytes));
+  const isPptx = Boolean(slideBytes) && !isPdf;
+  const slidesReady = isPptx ? pageReady : Boolean(pdf) && pageReady;
   const message =
     renderError ||
     fileError ||
@@ -277,10 +281,23 @@ export function SlideStage({
     >
       <div ref={frameRef} className={styles.frame}>
         {!slidesReady && message ? <p className={styles.status}>{message}</p> : null}
+        {isPptx && slideBytes && allowPdf ? (
+          <PptxSlide
+            bytes={slideBytes}
+            page={deck.page}
+            label={`Slide ${deck.page} of ${deck.pageCount}`}
+            onReady={() => {
+              setRenderError(null);
+              setPageReady(true);
+            }}
+            onError={setRenderError}
+          />
+        ) : null}
         <canvas
           ref={canvasRef}
-          aria-label={`Slide ${deck.page} of ${deck.pageCount}`}
-          style={{ display: slidesReady ? 'block' : 'none' }}
+          aria-hidden={!isPdf}
+          aria-label={isPdf ? `Slide ${deck.page} of ${deck.pageCount}` : undefined}
+          style={{ display: isPdf && slidesReady ? 'block' : 'none' }}
         />
       </div>
       {notesOpen ? (
